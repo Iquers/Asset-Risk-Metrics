@@ -1,0 +1,150 @@
+import numpy as np
+import pandas as pd
+import yfinance as yf
+import matplotlib.pyplot as plt
+
+
+def fetch_data(ticker, start_date, end_date):
+    stock_data = yf.download(ticker, start=start_date, end=end_date)
+    if stock_data.empty:
+        print(f"No data found for {
+              ticker}. Please check the ticker symbol and date range.")
+        return None
+    return stock_data['Adj Close']
+
+
+def calculate_daily_returns(data):
+    if data is not None and not data.empty:
+        return data.pct_change().dropna()
+    return pd.Series()
+
+
+def calculate_beta(stock_returns, benchmark_returns):
+    if len(stock_returns) > 1 and len(benchmark_returns) > 1:
+        covariance = np.cov(stock_returns, benchmark_returns)[0, 1]
+        variance = np.var(benchmark_returns)
+        return covariance / variance
+    return 0
+
+
+def calculate_alpha(stock_returns, benchmark_returns, beta, risk_free_rate):
+    if len(stock_returns) > 1 and len(benchmark_returns) > 1:
+        stock_annualized_return = np.mean(stock_returns) * 252
+        benchmark_annualized_return = np.mean(benchmark_returns) * 252
+        alpha = stock_annualized_return - \
+            (risk_free_rate + beta * (benchmark_annualized_return - risk_free_rate))
+        return alpha
+    return 0
+
+
+def calculate_var(returns, percentile):
+    if len(returns) > 0:
+        return np.percentile(returns, percentile)
+    return 0
+
+
+def normalize_data(data):
+    """
+    Normalize the data to start at 1.
+    """
+    return data / data.iloc[0]
+
+
+def plot_data(stock_data, benchmark_data):
+    # Normalize the data
+    normalized_stock_data = normalize_data(stock_data)
+    normalized_benchmark_data = normalize_data(benchmark_data)
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(normalized_stock_data, label='Stock')
+    plt.plot(normalized_benchmark_data, label='Benchmark')
+    plt.legend()
+    plt.title('Stock vs Benchmark (Logarithmic Scale)')
+    plt.xlabel('Date')
+    plt.ylabel('Log Normalized Price')
+    plt.yscale('log')
+    plt.show()
+
+
+def align_data(stock_data, benchmark_data):
+    """
+    Align stock and benchmark data by their dates.
+    """
+    return stock_data.align(benchmark_data, join='inner')
+
+
+def calculate_sharpe_ratio(returns, risk_free_rate):
+    excess_returns = returns - risk_free_rate
+    return np.mean(excess_returns) / np.std(excess_returns)
+
+
+def calculate_volatility(returns):
+    return np.std(returns)
+
+
+def calculate_max_drawdown(adjusted_close_prices):
+    # Calculate the cumulative returns
+    cumulative_returns = (1 + adjusted_close_prices.pct_change()).cumprod()
+    # Calculate the cumulative max
+    cumulative_max = cumulative_returns.cummax()
+    # Calculate drawdown
+    drawdown = (cumulative_returns - cumulative_max) / cumulative_max
+    return drawdown.min()
+
+
+def main():
+    # Gathering user inputs
+    stock_ticker = input("Enter Stock Ticker: ")
+    benchmark_ticker = input("Enter Benchmark Ticker: ")
+    start_date = input("Enter Start Date (YYYY-MM-DD): ")
+    end_date = input("Enter End Date (YYYY-MM-DD): ")
+
+    # Error handling for risk-free rate input
+    while True:
+        try:
+            risk_free_rate_input = input(
+                "Enter Risk-Free Rate (as a decimal, e.g., 0.02 for 2%): ")
+            risk_free_rate = float(risk_free_rate_input)
+            if risk_free_rate < 0:
+                raise ValueError("Risk-free rate cannot be negative.")
+            break
+        except ValueError as e:
+            print(f"Invalid input: {e}. Please enter a valid risk-free rate.")
+
+    # Fetching data
+    stock_data = fetch_data(stock_ticker, start_date, end_date)
+    benchmark_data = fetch_data(benchmark_ticker, start_date, end_date)
+
+    if stock_data is None or benchmark_data is None:
+        return
+
+    # Aligning data
+    stock_data, benchmark_data = align_data(stock_data, benchmark_data)
+
+    stock_returns = calculate_daily_returns(stock_data)
+    benchmark_returns = calculate_daily_returns(benchmark_data)
+
+    beta = calculate_beta(stock_returns, benchmark_returns)
+    alpha = calculate_alpha(
+        stock_returns, benchmark_returns, beta, risk_free_rate)
+    var_95 = calculate_var(stock_returns, 5)  # VaR at 95% confidence level
+    var_99 = calculate_var(stock_returns, 1)  # VaR at 99% confidence level
+    sharpe_ratio = calculate_sharpe_ratio(stock_returns, risk_free_rate / 252)
+    volatility = calculate_volatility(stock_returns)
+    max_drawdown = calculate_max_drawdown(stock_data)
+
+    # Plotting data and displaying metrics
+    plot_data(stock_data, benchmark_data)
+
+    print("\nCalculated Metrics:")
+    print(f"Beta: {beta:.4f}")
+    print(f"Alpha: {alpha:.4f}")
+    print(f"VaR 95%: {var_95:.4f}")
+    print(f"VaR 99%: {var_99:.4f}")
+    print(f"Sharpe Ratio: {sharpe_ratio:.4f}")
+    print(f"Volatility: {volatility:.4f}")
+    print(f"Maximum Drawdown: {max_drawdown:.4f}")
+
+
+if __name__ == "__main__":
+    main()
