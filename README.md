@@ -1,5 +1,7 @@
 # Asset-Risk-Metrics Dashboard
 
+Updated for better data visualization via streamlit. Local streamlit dashboard by now.
+
 A comprehensive Python application for analyzing risk metrics of assets and their benchmarks. Includes both a command-line interface and an interactive **Streamlit dashboard** for visualizing risk metrics.
 
 ## Features
@@ -13,13 +15,7 @@ A comprehensive Python application for analyzing risk metrics of assets and thei
 - **Value at Risk (VaR)**: 95% and 99% confidence levels
 - **Maximum Drawdown**: Peak-to-trough decline
 
-### Dashboard Features
-- 📊 Interactive visualizations with Plotly
-- 📈 Multiple chart types (price comparison, returns distribution, cumulative returns, drawdown analysis)
-- 🎛️ Easy parameter configuration via sidebar
-- 📥 CSV export functionality
-- 🎯 Real-time metric calculations
-- 💡 Detailed metrics explanations
+
 
 ## Installation
 
