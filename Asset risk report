@@ -5,41 +5,107 @@ import matplotlib.pyplot as plt
 
 
 def fetch_data(ticker, start_date, end_date):
-    stock_data = yf.download(ticker, start=start_date, end=end_date)
-    if stock_data.empty:
-        print(f"No data found for {
-              ticker}. Please check the ticker symbol and date range.")
+    try:
+        print(f"\nFetching data for {ticker}...")
+        stock_data = yf.download(ticker, start=start_date, end=end_date, auto_adjust=False, progress=False)
+        if stock_data.empty:
+            print(f"No data found for {ticker}. Please check the ticker symbol and date range.")
+            return None
+        
+        print(f"  Downloaded data shape: {stock_data.shape}")
+        print(f"  Available columns: {list(stock_data.columns)}")
+        
+        # Handle MultiIndex columns from yfinance (when downloading multiple tickers)
+        if isinstance(stock_data.columns, pd.MultiIndex):
+            print(f"  Detected MultiIndex columns - extracting {ticker}")
+            # For MultiIndex columns, get the first column that contains 'Adj Close' or 'Close'
+            for col in stock_data.columns:
+                if col[0] == 'Adj Close':
+                    data = stock_data[col].copy()
+                    data.name = ticker  # Set simple name for alignment
+                    print(f"  Using 'Adj Close' column ({len(data)} data points)")
+                    return data
+            for col in stock_data.columns:
+                if col[0] == 'Close':
+                    data = stock_data[col].copy()
+                    data.name = ticker
+                    print(f"  Using 'Close' column ({len(data)} data points)")
+                    return data
+        else:
+            # Regular columns (single ticker download)
+            if 'Adj Close' in stock_data.columns:
+                data = stock_data['Adj Close'].copy()
+                data.name = ticker
+                print(f"  Using 'Adj Close' column ({len(data)} data points)")
+                return data
+            elif 'Close' in stock_data.columns:
+                data = stock_data['Close'].copy()
+                data.name = ticker
+                print(f"  Using 'Close' column ({len(data)} data points)")
+                return data
+        
+        print(f"Error: No suitable price column found in data for {ticker}")
+        print(f"Available columns: {stock_data.columns.tolist()}")
         return None
-    return stock_data['Adj Close']
+    except Exception as e:
+        print(f"Error fetching data for {ticker}: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 
 
 def calculate_daily_returns(data):
-    if data is not None and not data.empty:
-        return data.pct_change().dropna()
+    if data is None:
+        return pd.Series()
+    
+    # If it's a DataFrame, try to extract the first column
+    if isinstance(data, pd.DataFrame):
+        if len(data.columns) > 0:
+            data = data.iloc[:, 0]
+        else:
+            return pd.Series()
+    
+    # Now data should be a Series
+    if not data.empty and len(data) > 0:
+        returns = data.pct_change().dropna()
+        return returns
     return pd.Series()
 
 
 def calculate_beta(stock_returns, benchmark_returns):
-    if len(stock_returns) > 1 and len(benchmark_returns) > 1:
-        covariance = np.cov(stock_returns, benchmark_returns)[0, 1]
-        variance = np.var(benchmark_returns)
-        return covariance / variance
+    try:
+        if len(stock_returns) > 1 and len(benchmark_returns) > 1:
+            stock_vals = np.array(stock_returns.values, dtype=float)
+            benchmark_vals = np.array(benchmark_returns.values, dtype=float)
+            covariance = np.cov(stock_vals, benchmark_vals)[0, 1]
+            variance = np.var(benchmark_vals)
+            if variance > 0:
+                return float(covariance / variance)
+    except (ValueError, TypeError, RuntimeError):
+        pass
     return 0
 
 
 def calculate_alpha(stock_returns, benchmark_returns, beta, risk_free_rate):
-    if len(stock_returns) > 1 and len(benchmark_returns) > 1:
-        stock_annualized_return = np.mean(stock_returns) * 252
-        benchmark_annualized_return = np.mean(benchmark_returns) * 252
-        alpha = stock_annualized_return - \
-            (risk_free_rate + beta * (benchmark_annualized_return - risk_free_rate))
-        return alpha
+    try:
+        if len(stock_returns) > 1 and len(benchmark_returns) > 1:
+            stock_vals = np.array(stock_returns.values, dtype=float)
+            benchmark_vals = np.array(benchmark_returns.values, dtype=float)
+            stock_annualized_return = np.mean(stock_vals) * 252
+            benchmark_annualized_return = np.mean(benchmark_vals) * 252
+            alpha = stock_annualized_return - \
+                (risk_free_rate + beta * (benchmark_annualized_return - risk_free_rate))
+            return float(alpha)
+    except (ValueError, TypeError, RuntimeError):
+        pass
     return 0
 
 
 def calculate_var(returns, percentile):
-    if len(returns) > 0:
-        return np.percentile(returns, percentile)
+    if returns is not None and len(returns) > 0:
+        returns_array = np.array(returns.values, dtype=float)
+        if len(returns_array) > 0:
+            return np.percentile(returns_array, percentile)
     return 0
 
 
@@ -47,49 +113,113 @@ def normalize_data(data):
     """
     Normalize the data to start at 1.
     """
-    return data / data.iloc[0]
+    # Handle DataFrames by extracting first column
+    if isinstance(data, pd.DataFrame):
+        if len(data.columns) > 0:
+            data = data.iloc[:, 0]
+        else:
+            return data
+    
+    if len(data) > 0 and data.iloc[0] > 0:
+        return data / data.iloc[0]
+    return data
 
 
 def plot_data(stock_data, benchmark_data):
-    # Normalize the data
-    normalized_stock_data = normalize_data(stock_data)
-    normalized_benchmark_data = normalize_data(benchmark_data)
+    try:
+        # Normalize the data
+        normalized_stock_data = normalize_data(stock_data)
+        normalized_benchmark_data = normalize_data(benchmark_data)
 
-    plt.figure(figsize=(10, 6))
-    plt.plot(normalized_stock_data, label='Stock')
-    plt.plot(normalized_benchmark_data, label='Benchmark')
-    plt.legend()
-    plt.title('Stock vs Benchmark (Logarithmic Scale)')
-    plt.xlabel('Date')
-    plt.ylabel('Log Normalized Price')
-    plt.yscale('log')
-    plt.show()
+        plt.figure(figsize=(10, 6))
+        plt.plot(normalized_stock_data, label='Stock')
+        plt.plot(normalized_benchmark_data, label='Benchmark')
+        plt.legend()
+        plt.title('Stock vs Benchmark (Logarithmic Scale)')
+        plt.xlabel('Date')
+        plt.ylabel('Log Normalized Price')
+        plt.yscale('log')
+        plt.show()
+    except Exception as e:
+        print(f"Error plotting data: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def align_data(stock_data, benchmark_data):
     """
     Align stock and benchmark data by their dates.
     """
-    return stock_data.align(benchmark_data, join='inner')
+    print(f"\n  Before align_data:")
+    print(f"    Stock: type={type(stock_data)}, len={len(stock_data)}, name={getattr(stock_data, 'name', 'N/A')}")
+    print(f"    Benchmark: type={type(benchmark_data)}, len={len(benchmark_data)}, name={getattr(benchmark_data, 'name', 'N/A')}")
+    
+    aligned_stock, aligned_bench = stock_data.align(benchmark_data, join='inner')
+    
+    print(f"  After align_data:")
+    print(f"    Stock: type={type(aligned_stock)}, len={len(aligned_stock)}, name={getattr(aligned_stock, 'name', 'N/A')}")
+    print(f"    Benchmark: type={type(aligned_bench)}, len={len(aligned_bench)}, name={getattr(aligned_bench, 'name', 'N/A')}")
+    
+    return aligned_stock, aligned_bench
 
 
 def calculate_sharpe_ratio(returns, risk_free_rate):
-    excess_returns = returns - risk_free_rate
-    return np.mean(excess_returns) / np.std(excess_returns)
+    try:
+        returns_vals = np.array(returns.values, dtype=float)
+        if len(returns_vals) < 2:
+            return 0
+        excess_returns = returns_vals - risk_free_rate
+        std_excess = float(np.std(excess_returns))
+        if std_excess > 0:
+            return np.mean(excess_returns) / std_excess
+    except (ValueError, TypeError, RuntimeWarning):
+        return 0
+    return 0
 
 
 def calculate_volatility(returns):
-    return np.std(returns)
+    try:
+        returns_vals = np.array(returns.values, dtype=float)
+        if len(returns_vals) < 2:
+            return 0
+        return np.std(returns_vals) * np.sqrt(252)
+    except (ValueError, TypeError, RuntimeWarning):
+        return 0
 
 
 def calculate_max_drawdown(adjusted_close_prices):
-    # Calculate the cumulative returns
-    cumulative_returns = (1 + adjusted_close_prices.pct_change()).cumprod()
-    # Calculate the cumulative max
-    cumulative_max = cumulative_returns.cummax()
-    # Calculate drawdown
-    drawdown = (cumulative_returns - cumulative_max) / cumulative_max
-    return drawdown.min()
+    try:
+        # Handle DataFrames by extracting first column
+        if isinstance(adjusted_close_prices, pd.DataFrame):
+            if len(adjusted_close_prices.columns) > 0:
+                adjusted_close_prices = adjusted_close_prices.iloc[:, 0]
+            else:
+                return 0
+        
+        # Calculate the cumulative returns
+        cumulative_returns = (1 + adjusted_close_prices.pct_change()).cumprod()
+        # Calculate the cumulative max
+        cumulative_max = cumulative_returns.cummax()
+        # Calculate drawdown
+        drawdown = (cumulative_returns - cumulative_max) / cumulative_max
+        return drawdown.min()
+    except Exception as e:
+        print(f"Error calculating max drawdown: {e}")
+        return 0
+
+
+def calculate_cagr(prices):
+    """Calculate Compound Annual Growth Rate"""
+    if len(prices) > 1:
+        try:
+            initial_price = float(prices.iloc[0])
+            final_price = float(prices.iloc[-1])
+            n_years = len(prices) / 252
+            if n_years > 0 and initial_price > 0:
+                return (final_price / initial_price) ** (1 / n_years) - 1
+        except (ValueError, TypeError):
+            return 0
+    return 0
 
 
 def main():
@@ -119,10 +249,41 @@ def main():
         return
 
     # Aligning data
+    print(f"\nData before alignment:")
+    print(f"  Stock data type: {type(stock_data)}, points: {len(stock_data)}")
+    print(f"  Benchmark data type: {type(benchmark_data)}, points: {len(benchmark_data)}")
+    
     stock_data, benchmark_data = align_data(stock_data, benchmark_data)
+    
+    print(f"Data after alignment:")
+    print(f"  Stock data type: {type(stock_data)}, points: {len(stock_data)}")
+    print(f"  Benchmark data type: {type(benchmark_data)}, points: {len(benchmark_data)}")
+    if isinstance(stock_data, pd.DataFrame):
+        print(f"  Stock DataFrame columns: {stock_data.columns.tolist()}")
+    if isinstance(benchmark_data, pd.DataFrame):
+        print(f"  Benchmark DataFrame columns: {benchmark_data.columns.tolist()}")
+    
+    # Validate we have enough data
+    if len(stock_data) < 30:
+        print(f"\nERROR: Not enough data points. Found {len(stock_data)}, but need at least 30.")
+        print("Please try a longer date range or verify the ticker symbols.")
+        return
 
     stock_returns = calculate_daily_returns(stock_data)
     benchmark_returns = calculate_daily_returns(benchmark_data)
+    
+    print(f"Returns calculated:")
+    print(f"  Stock returns: {len(stock_returns)}")
+    print(f"  Benchmark returns: {len(benchmark_returns)}")
+    
+    # Validate returns were calculated
+    if len(stock_returns) < 2 or len(benchmark_returns) < 2:
+        print(f"\nERROR: Not enough return data points. Stock returns: {len(stock_returns)}, Benchmark returns: {len(benchmark_returns)}")
+        print("Stock data sample:")
+        print(stock_data.head() if len(stock_data) > 0 else "  Empty")
+        print("Benchmark data sample:")
+        print(benchmark_data.head() if len(benchmark_data) > 0 else "  Empty")
+        return
 
     beta = calculate_beta(stock_returns, benchmark_returns)
     alpha = calculate_alpha(
@@ -132,18 +293,24 @@ def main():
     sharpe_ratio = calculate_sharpe_ratio(stock_returns, risk_free_rate / 252)
     volatility = calculate_volatility(stock_returns)
     max_drawdown = calculate_max_drawdown(stock_data)
+    cagr = calculate_cagr(stock_data)
 
     # Plotting data and displaying metrics
     plot_data(stock_data, benchmark_data)
 
-    print("\nCalculated Metrics:")
+    print("\n" + "="*50)
+    print("CALCULATED METRICS")
+    print("="*50)
+    print(f"Data Points: {len(stock_returns)} returns")
     print(f"Beta: {beta:.4f}")
     print(f"Alpha: {alpha:.4f}")
+    print(f"CAGR: {cagr:.4f}")
     print(f"VaR 95%: {var_95:.4f}")
     print(f"VaR 99%: {var_99:.4f}")
     print(f"Sharpe Ratio: {sharpe_ratio:.4f}")
     print(f"Volatility: {volatility:.4f}")
     print(f"Maximum Drawdown: {max_drawdown:.4f}")
+    print("="*50)
 
 
 if __name__ == "__main__":
